@@ -24,25 +24,25 @@ ui <- fluidPage(
           tags$hr(),
           textOutput("n.ab1", container = tags$b),
           sliderInput("t.ab1", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab1", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab1", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab2", container = tags$b),
           sliderInput("t.ab2", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab2", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab2", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab3", container = tags$b),
           sliderInput("t.ab3", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab3", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab3", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab4", container = tags$b),
           sliderInput("t.ab4", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab4", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab4", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab5", container = tags$b),
           sliderInput("t.ab5", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab5", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab5", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab6", container = tags$b),
           sliderInput("t.ab6", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab6", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus")),
+          selectInput("s.ab6", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell")),
           textOutput("n.ab7", container = tags$b),
           sliderInput("t.ab7", NULL, min = 0, max = 20, value = 0, step = 0.1),
-          selectInput("s.ab7", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus"))
+          selectInput("s.ab7", NULL, choices = c("Membrane", "Cytoplasm", "Nucleus", "Entire Cell"))
       )
    )
 )
@@ -61,7 +61,8 @@ extractRelevantColumns <- function(data) {
     cols.to.keep <- cols.to.keep |
         grepl("^Cytoplasm\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
         grepl("^Membrane\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
-        grepl("^Nucleus\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data))
+        grepl("^Nucleus\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
+        grepl("^Entire\\.Cell\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data))
     
     return(data[, cols.to.keep])
 }
@@ -70,6 +71,8 @@ shortenColnames <- function(data) {
     colnames(data) <- gsub("([^.]*)\\.(.*)\\.\\.Opal.*", "\\2.\\1", colnames(data))
     colnames(data) <- gsub("([^.]*)\\.DAPI.*", "DAPI.\\1", colnames(data))
     #colnames(data) <- gsub("\\.", "-", colnames(data))
+    colnames(data) <- gsub("^Cell\\.", "", colnames(data))
+    colnames(data)[grepl("Entire.DAPI.Cell", colnames(data))] <- "DAPI.Entire"
     colnames(data)[colnames(data) == "Phenotype"] <- "Phenotype.org"
     
     return(data)
@@ -93,6 +96,8 @@ server <- function(input, output) {
       ab.names <<- gsub("\\.Membrane", "", colnames(data)[grep("\\.Membrane", colnames(data))])
       
       cores <<- data
+      
+      message(paste0(colnames(cores), collapse = ", "))
     }
     
     if (exists("cores")) {
@@ -123,12 +128,18 @@ server <- function(input, output) {
   
   # build the colnames
   getColnames <- reactive({
+    ab.names <- getAbLabel()
     req(ab.names)
     
     ab.colnames <- c()
     for (n in 1:7) {
-      staining.name <- paste0("s.ab", n)
-      ab.colnames <- c(ab.colnames, paste0(ab.names[n], ".", input[[staining.name]]))
+      staining.name <- input[[paste0("s.ab", n)]]
+      
+      if (staining.name == "Entire Cell") {
+        staining.name <- "Entire"
+      }
+      
+      ab.colnames <- c(ab.colnames, paste0(ab.names[n], ".", staining.name))
     }
     
     return(ab.colnames)
