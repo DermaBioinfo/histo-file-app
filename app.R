@@ -15,7 +15,12 @@ ui <- fluidPage(
             tabsetPanel(
                 tabPanel("Staining Distribution (All)", plotOutput("hist.plot", height="600px")),
                 tabPanel("Staining Distribution (Positive)", plotOutput("hist.plot.pos", height="600px")),
-                tabPanel("PCA", plotOutput("pca"))
+                tabPanel("PCA", 
+                         fluidRow(
+                           column(9, plotOutput("pca")),
+                           column(3, plotOutput("location.frequ"))
+                         )
+                )
             )
         ),       
       sidebarPanel(
@@ -62,7 +67,8 @@ extractRelevantColumns <- function(data) {
         grepl("^Cytoplasm\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
         grepl("^Membrane\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
         grepl("^Nucleus\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
-        grepl("^Entire\\.Cell\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data))
+        grepl("^Entire\\.Cell\\..*.*Mean\\.\\.Normalized\\.Counts\\..*", colnames(data)) |
+        grepl("Tissue\\.Category", colnames(data))
     
     return(data[, cols.to.keep])
 }
@@ -211,6 +217,22 @@ server <- function(input, output) {
       # create the histogram
       hist(cores[is.positive, ab.colnames[n]], main = ab.colnames[n], breaks = 50)
     }
+  })
+  
+  # location.frequ
+  output$location.frequ <- renderPlot({
+    cores <- loadCoreData()
+    is.positive <- getPositiveCells()
+    req(cores, is.positive)
+    
+    if (!"Tissue.Category" %in% colnames(cores)) {
+      return(NULL)
+    }
+    
+    ggplot(cores, aes(x = Tissue.Category)) +
+      geom_bar() +
+      theme_bw() +
+      labs(title = "Positive cells")
   })
   
   # perform the PCA
