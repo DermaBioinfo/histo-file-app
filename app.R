@@ -29,35 +29,38 @@ ui <- fluidPage(
 
                            column(3,
                                    textOutput("n1.ab1", container = tags$b, inline = T),
-                                   selectInput("phen.ab1", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                   selectInput("phen.ab1", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                   textOutput("n1.ab2", container = tags$b, inline = T),
-                                  selectInput("phen.ab2", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                  selectInput("phen.ab2", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                   textOutput("n1.ab3", container = tags$b, inline = T),
-                                  selectInput("phen.ab3", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                  selectInput("phen.ab3", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                   textOutput("n1.ab4", container = tags$b, inline = T),
-                                  selectInput("phen.ab4", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                  selectInput("phen.ab4", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                   textOutput("n1.ab5", container = tags$b, inline = T),
-                                  selectInput("phen.ab5", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                  selectInput("phen.ab5", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                   textOutput("n1.ab6", container = tags$b, inline = T),
-                                  selectInput("phen.ab6", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                  selectInput("phen.ab6", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3,
                                     textOutput("n1.ab7", container = tags$b, inline = T),
-                                    selectInput("phen.ab7", label = NULL, choices = c("Ignore", "Up", "Down"))
+                                    selectInput("phen.ab7", label = NULL, choices = c("Ignore", "Positive", "Negative"))
                            ),
                            column(3, 
                                   textInput("phen.name", "Name", placeholder = "B cells"),
-                                  actionButton("save.phenotype", "Save"))
+                                  actionButton("save.phenotype", "Save")),
+                           column(12, tags$hr()),
+                           column(12, tags$h4("Delete phenotype")),
+                           column(12, uiOutput("phenotype.select"), actionButton("delete.phenotype", "Delete"))
                          )
                 )
             )
@@ -152,7 +155,7 @@ options(shiny.maxRequestSize=100*1024^2)
 
 # Define server logic required todraw a histogram
 server <- function(input, output) {
-  v <- reactiveValues(phenotypes = list())
+  v <- reactiveValues(phenotypes = list(), cell.phenotypes = list())
   
   # check whether a new file was uploaded by the user
   loadCoreData <- reactive({
@@ -333,10 +336,12 @@ server <- function(input, output) {
   # ---- Phenotypes ----
   # create the table of currently stored phenotypes
   output$phenotype.table <- renderTable({
-    v$phenotypes <- loadPhenotypes()
-    
-    if (length(v$phenotypes) < 0) {
-      return(NULL)
+    if (length(v$phenotypes) == 0) {
+      v$phenotypes <- loadPhenotypes()
+      
+      if (length(v$phenotypes) == 0) {
+        return(NULL)
+      }
     }
     
     # create the data.frame
@@ -363,9 +368,9 @@ server <- function(input, output) {
       # get the selection
       sel <- input[[paste0("phen.ab", n)]]
       
-      if (sel == "Up") {
+      if (sel == "Positive") {
         phenotype.vector <- c(phenotype.vector, paste0(ab.names[n], "+"))
-      } else if (sel == "Down") {
+      } else if (sel == "Negative") {
         phenotype.vector <- c(phenotype.vector, paste0(ab.names[n], "-"))
       }
     }
@@ -379,6 +384,27 @@ server <- function(input, output) {
     }
   })
   
+  output$phenotype.select <- renderUI({
+    if (length(v$phenotypes) == 0) {
+      return(selectInput("phen.to.del", NULL, c("Nothing available")))
+    }
+    
+    selectInput("phen.to.del", NULL, names(v$phenotypes))
+  })
+  
+  observeEvent(input$delete.phenotype, {
+    req(input$phen.to.del)
+    
+    if (!input$phen.to.del %in% names(v$phenotypes)) {
+      message("Unknown phenotype selected")
+      return();
+    }
+    
+    # delete the phenotype
+    message("Deleting ", input$phen.to.del)
+    v$phenotypes[[input$phen.to.del]] <- NULL
+    savePhenotypes(v$phenotypes)
+  })
 }
 
 # Run the application 
