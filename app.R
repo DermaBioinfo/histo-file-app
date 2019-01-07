@@ -22,11 +22,42 @@ ui <- fluidPage(
                 ),
                 tabPanel("Phenotypes",
                          fluidRow(
-                          tableOutput("phenotypeTable"),
-                          # user interface to add new phenotype
-                          tags$hr(),
-                          tags$h4("Add new phenotype:"),
-                          textOutput("n.ab1", container = tags$b)
+                           column(12, tags$h4("Currently stored phenotypes:")),
+                           column(12, tableOutput("phenotype.table")),
+                           column(12, tags$hr()),
+                           column(12, tags$h4("Add new phenotype:")),
+
+                           column(3,
+                                   textOutput("n1.ab1", container = tags$b, inline = T),
+                                   selectInput("phen.ab1", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                  textOutput("n1.ab2", container = tags$b, inline = T),
+                                  selectInput("phen.ab2", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                  textOutput("n1.ab3", container = tags$b, inline = T),
+                                  selectInput("phen.ab3", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                  textOutput("n1.ab4", container = tags$b, inline = T),
+                                  selectInput("phen.ab4", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                  textOutput("n1.ab5", container = tags$b, inline = T),
+                                  selectInput("phen.ab5", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                  textOutput("n1.ab6", container = tags$b, inline = T),
+                                  selectInput("phen.ab6", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3,
+                                    textOutput("n1.ab7", container = tags$b, inline = T),
+                                    selectInput("phen.ab7", label = NULL, choices = c("Ignore", "Up", "Down"))
+                           ),
+                           column(3, 
+                                  textInput("phen.name", "Name", placeholder = "B cells"),
+                                  actionButton("save.phenotype", "Save"))
                          )
                 )
             )
@@ -108,19 +139,21 @@ savePhenotypes <- function(phenotypes) {
 #' Retrieves the stored phenotypes
 #' 
 #' @return A named list with the phenotype names and a vector of molecules
-loadPhenotypes <- function() {
+loadPhenotypes <- reactive({
   if (file.exists("phenotypes.rds")) {
     return(readRDS("phenotypes.rds"))
   } else {
     return(list())
   }
-}
+})
 
 # increase the upload size
 options(shiny.maxRequestSize=100*1024^2)
 
 # Define server logic required todraw a histogram
 server <- function(input, output) {
+  v <- reactiveValues(phenotypes = list())
+  
   # check whether a new file was uploaded by the user
   loadCoreData <- reactive({
     if ("core.file" %in% names(input) && !is.null(input$core.file)) {
@@ -145,8 +178,6 @@ server <- function(input, output) {
     }
   })
   
-  phenotypes <- loadPhenotypes()
-  
   # update the labels
   getAbLabel <- function(n.ab) {
     cores <- loadCoreData()
@@ -165,6 +196,14 @@ server <- function(input, output) {
   output$n.ab5 <- renderText(getAbLabel(5))
   output$n.ab6 <- renderText(getAbLabel(6))
   output$n.ab7 <- renderText(getAbLabel(7))
+  
+  output$n1.ab1 <- renderText(getAbLabel(1))
+  output$n1.ab2 <- renderText(getAbLabel(2))
+  output$n1.ab3 <- renderText(getAbLabel(3))
+  output$n1.ab4 <- renderText(getAbLabel(4))
+  output$n1.ab5 <- renderText(getAbLabel(5))
+  output$n1.ab6 <- renderText(getAbLabel(6))
+  output$n1.ab7 <- renderText(getAbLabel(7))
   
   # build the colnames
   getColnames <- reactive({
@@ -292,40 +331,55 @@ server <- function(input, output) {
   })
   
   # ---- Phenotypes ----
+  # create the table of currently stored phenotypes
   output$phenotype.table <- renderTable({
-    phenotypes <- loadPhenotypes()
+    v$phenotypes <- loadPhenotypes()
     
-    if (length(phenotypes) < 0) {
+    if (length(v$phenotypes) < 0) {
       return(NULL)
     }
     
     # create the data.frame
-    phen.data <- do.call("rbind", lapply(names(phenotypes), function(name) {
+    phen.data <- do.call("rbind", lapply(names(v$phenotypes), function(name) {
       data.frame(
         name = name,
-        molecules = paste0(phenotypes[[name]], collapse = ", ")
+        molecules = paste0(v$phenotypes[[name]], collapse = ", ")
       )
     }
     ))
+    
+    return(phen.data)
   })
+  
+  # observe the button to add a new phenotype
+  observeEvent(input$save.phenotype, {
+    req(input$phen.name)
+    ab.names <- getColnames()
+    
+    # build the phenotype string
+    phenotype.vector <- c()
+    
+    for (n in 1:7) {
+      # get the selection
+      sel <- input[[paste0("phen.ab", n)]]
+      
+      if (sel == "Up") {
+        phenotype.vector <- c(phenotype.vector, paste0(ab.names[n], "+"))
+      } else if (sel == "Down") {
+        phenotype.vector <- c(phenotype.vector, paste0(ab.names[n], "-"))
+      }
+    }
+    
+    if (length(phenotype.vector) > 0) {
+      message("Saving phenotypes")
+      
+      v$phenotypes <- loadPhenotypes()
+      v$phenotypes[[input$phen.name]] <- phenotype.vector
+      savePhenotypes(v$phenotypes)
+    }
+  })
+  
 }
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
