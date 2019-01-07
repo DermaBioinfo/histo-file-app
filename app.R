@@ -4,7 +4,6 @@ library(reshape2)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
-   
    # Application title
    titlePanel("Histo Analysis"),
    
@@ -19,6 +18,15 @@ ui <- fluidPage(
                          fluidRow(
                            column(9, plotOutput("pca")),
                            column(3, plotOutput("location.frequ"))
+                         )
+                ),
+                tabPanel("Phenotypes",
+                         fluidRow(
+                          tableOutput("phenotypeTable"),
+                          # user interface to add new phenotype
+                          tags$hr(),
+                          tags$h4("Add new phenotype:"),
+                          textOutput("n.ab1", container = tags$b)
                          )
                 )
             )
@@ -84,6 +92,30 @@ shortenColnames <- function(data) {
     return(data)
 }
 
+#' Stores the current list of phenotypes
+#' 
+#' @param phenotypes A list where the names are the phenotype names and vector of antibodies their description.
+#' @example 
+#' phenotypes <- list()
+#' # + / - indicate whether the molecule is up- or down-regulated
+#' phenotypes[["B.cell"]] <- c("MS4A1+", "CD19+")
+#' savePhenotypes(phenotypes)
+savePhenotypes <- function(phenotypes) {
+  # currently, only save as an RDS file
+  saveRDS(phenotypes, "phenotypes.rds")
+}
+
+#' Retrieves the stored phenotypes
+#' 
+#' @return A named list with the phenotype names and a vector of molecules
+loadPhenotypes <- function() {
+  if (file.exists("phenotypes.rds")) {
+    return(readRDS("phenotypes.rds"))
+  } else {
+    return(list())
+  }
+}
+
 # increase the upload size
 options(shiny.maxRequestSize=100*1024^2)
 
@@ -112,6 +144,8 @@ server <- function(input, output) {
       return(NULL)
     }
   })
+  
+  phenotypes <- loadPhenotypes()
   
   # update the labels
   getAbLabel <- function(n.ab) {
@@ -255,6 +289,24 @@ server <- function(input, output) {
     ggplot(plot.data, aes(x = PC1, y = PC2, color = is.positive)) +
       geom_point() +
       scale_color_manual(values = c("grey", "red"))
+  })
+  
+  # ---- Phenotypes ----
+  output$phenotype.table <- renderTable({
+    phenotypes <- loadPhenotypes()
+    
+    if (length(phenotypes) < 0) {
+      return(NULL)
+    }
+    
+    # create the data.frame
+    phen.data <- do.call("rbind", lapply(names(phenotypes), function(name) {
+      data.frame(
+        name = name,
+        molecules = paste0(phenotypes[[name]], collapse = ", ")
+      )
+    }
+    ))
   })
 }
 
