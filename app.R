@@ -12,6 +12,10 @@ ui <- fluidPage(
         mainPanel(
             textOutput("result.text", container = tags$h3),
             tabsetPanel(
+                tabPanel("Overview",
+                  fluidRow(column(6, tableOutput("phen.frequ.tbl"))),
+                  fluidRow(column(12, tags$p("Warning: Phenotype assessment is based on defined thresholds.")))
+                ),
                 tabPanel("Staining Distribution (All)", plotOutput("hist.plot", height="600px")),
                 tabPanel("Staining Distribution (Positive)", plotOutput("hist.plot.pos", height="600px")),
                 tabPanel("PCA", 
@@ -142,20 +146,62 @@ savePhenotypes <- function(phenotypes) {
 #' Retrieves the stored phenotypes
 #' 
 #' @return A named list with the phenotype names and a vector of molecules
-loadPhenotypes <- reactive({
+loadPhenotypes <- function() {
   if (file.exists("phenotypes.rds")) {
     return(readRDS("phenotypes.rds"))
   } else {
     return(list())
   }
-})
+}
+
+#' Assigns a phenotype to every cell
+#' 
+#' @param cores The expression matrix for every cell
+#' @param phenotypes The phenotype definitions (see above)
+#' @param thresholds A named vector containing the threshold as value and the AB column specification as key.
+#' 
+#' @example 
+#' # Phenotypes are stored as a list where the name is the
+#' # phenotype name and the values are the specifications
+#' phenotypes <- list()
+#' phenotypes[["Plasmablast"]] <- c("CD27.Membrane+", "CD138.Membrane+", "CD38.Membrane+")
+getPhenotypePerCell <- function(cores, phenotypes, thresholds) {
+  assigned.phenotypes <- rep("Unknown", nrow(cores))
+  
+  for (phenotype.name in names(phenotypes)) {
+    has.phenotype <- rep(T, nrow(cores))
+    
+    for (ab.spec in phenotypes[[phenotype.name]]) {
+      direction <- substr(ab.spec, nchar(ab.spec), nchar(ab.spec))
+      column <- substr(ab.spec, 1, nchar(ab.spec) - 1)
+      
+      # if a column is missing, never assign the phenotype
+      if (!column %in% colnames(cores)) {
+        has.phenotype <- rep(F, nrow(cores))
+      } else {
+        # test based on the direction
+        # TODO: get the threshold
+        if (direction == "+") {
+          has.phenotype <- has.phenotype & cores[, column] >= thresholds[column]
+        } else {
+          has.phenotype <- has.phenotype & cores[, column] < thresholds[column]
+        }
+      }
+    }
+    
+    # update the phenotypes
+    assigned.phenotypes[has.phenotype] <- phenotype.name
+  }
+  
+  return(assigned.phenotypes)
+}
 
 # increase the upload size
 options(shiny.maxRequestSize=100*1024^2)
 
 # Define server logic required todraw a histogram
 server <- function(input, output) {
-  v <- reactiveValues(phenotypes = list(), cell.phenotypes = list())
+  v <- reactiveValues(phenotypes = list())
   
   # check whether a new file was uploaded by the user
   loadCoreData <- reactive({
@@ -250,7 +296,56 @@ server <- function(input, output) {
     return(is.positive)
   })
   
+  # ---- Get the phenotypes for the cells ----
+  getCurrentPhenotypes <- reactive({
+    cores <- loadCoreData()
+    ab.colnames <- getColnames()
+    
+    if (length(v$phenotypes) < 1) {
+      v$phenotypes <- loadPhenotypes()
+    }
+    
+    req(cores, ab.colnames)
+    
+    # build the threshold list
+    thresholds <- c()
+    
+    for (n in 1:7) {
+      ab.threshold <- input[[paste0("t.ab", n)]]
+      thresholds <- c(thresholds, ab.threshold)
+    }
+    names(thresholds) <- ab.colnames
+    
+    # get the phenotypes
+    phenotypes <- getPhenotypePerCell(cores = cores, phenotypes = v$phenotypes, thresholds = thresholds)
+    
+    return(phenotypes)
+  })
+  
   # ---- Create the outputs ----
+  # overview
+  output$phen.frequ.tbl <- renderTable({
+    cores <- loadCoreData()
+    phenotypes <- getCurrentPhenotypes()
+    req(cores, phenotypes)
+    
+    if (!"Tissue.Category" %in% colnames(cores)) {
+      res.tbl <- data.frame(table(phenotypes))
+      colnames(res.tbl) <- c("Phenotype", "Frequency")
+      return(res.tbl)
+    } else {
+      res.tbl <- data.frame(table(cores$Tissue.Category, phenotypes))
+      colnames(res.tbl) <- c("Location", "Cell.type", "Frequency")
+      res.tbl <- dcast(res.tbl, Cell.type ~ Location, value.var = "Frequency")
+      Total.cells <- as.integer( rowSums(res.tbl[, 2:ncol(res.tbl)]) )
+      # change to percent
+      res.tbl[, 2:ncol(res.tbl)] <- paste0(round(res.tbl[, 2:ncol(res.tbl)] / rowSums(res.tbl[, 2:ncol(res.tbl)]) * 100, 1), "%")
+      res.tbl <- cbind(res.tbl, Total.cells)
+      str(res.tbl)
+      return(res.tbl)
+    }
+  })
+  
   # add the frequency table
   output$result.text <- renderText({
     cores <- loadCoreData()
@@ -299,15 +394,17 @@ server <- function(input, output) {
   output$location.frequ <- renderPlot({
     cores <- loadCoreData()
     is.positive <- getPositiveCells()
+    phenotypes <- getCurrentPhenotypes()
     req(cores, is.positive)
     
     if (!"Tissue.Category" %in% colnames(cores)) {
       return(NULL)
     }
     
-    ggplot(cores, aes(x = Tissue.Category)) +
+    ggplot(cbind(cores, phenotypes), aes(x = Tissue.Category)) +
       geom_bar() +
       theme_bw() +
+      facet_wrap(~ phenotypes) + 
       labs(title = "Positive cells")
   })
   
@@ -337,7 +434,7 @@ server <- function(input, output) {
   # create the table of currently stored phenotypes
   output$phenotype.table <- renderTable({
     if (length(v$phenotypes) == 0) {
-      v$phenotypes <- loadPhenotypes()
+      v$phenotypes <<- loadPhenotypes()
       
       if (length(v$phenotypes) == 0) {
         return(NULL)
@@ -378,8 +475,8 @@ server <- function(input, output) {
     if (length(phenotype.vector) > 0) {
       message("Saving phenotypes")
       
-      v$phenotypes <- loadPhenotypes()
-      v$phenotypes[[input$phen.name]] <- phenotype.vector
+      v$phenotypes <<- loadPhenotypes()
+      v$phenotypes[[input$phen.name]] <<- phenotype.vector
       savePhenotypes(v$phenotypes)
     }
   })
@@ -402,7 +499,7 @@ server <- function(input, output) {
     
     # delete the phenotype
     message("Deleting ", input$phen.to.del)
-    v$phenotypes[[input$phen.to.del]] <- NULL
+    v$phenotypes[[input$phen.to.del]] <<- NULL
     savePhenotypes(v$phenotypes)
   })
 }
