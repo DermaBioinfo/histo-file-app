@@ -1,6 +1,7 @@
 library(shiny)
 library(ggplot2)
 library(reshape2)
+library(RColorBrewer)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -13,15 +14,16 @@ ui <- fluidPage(
             textOutput("result.text", container = tags$h3),
             tabsetPanel(
                 tabPanel("Overview",
-                  fluidRow(column(6, tableOutput("phen.frequ.tbl"))),
+                  fluidRow(column(6, tableOutput("phen.frequ.tbl")),
+                           column(6, tableOutput("phen.loc.freq.tbl"))),
                   fluidRow(column(12, tags$p("Warning: Phenotype assessment is based on defined thresholds.")))
                 ),
                 tabPanel("Staining Distribution (All)", plotOutput("hist.plot", height="600px")),
                 tabPanel("Staining Distribution (Positive)", plotOutput("hist.plot.pos", height="600px")),
                 tabPanel("PCA", 
                          fluidRow(
-                           column(9, plotOutput("pca")),
-                           column(3, plotOutput("location.frequ"))
+                           column(6, plotOutput("pca")),
+                           column(6, plotOutput("pca.phen"))
                          )
                 ),
                 tabPanel("Phenotypes",
@@ -329,21 +331,30 @@ server <- function(input, output) {
     phenotypes <- getCurrentPhenotypes()
     req(cores, phenotypes)
     
+    res.tbl <- data.frame(table(phenotypes))
+    colnames(res.tbl) <- c("Phenotype", "Frequency")
+    res.tbl$Rel.Frequency <- paste0(round(res.tbl$Frequency / sum(res.tbl$Frequency) * 100, 1), "%")
+    return(res.tbl)
+  })
+  
+  output$phen.loc.freq.tbl <- renderTable({
+    cores <- loadCoreData()
+    phenotypes <- getCurrentPhenotypes()
+    req(cores, phenotypes)
+    
     if (!"Tissue.Category" %in% colnames(cores)) {
-      res.tbl <- data.frame(table(phenotypes))
-      colnames(res.tbl) <- c("Phenotype", "Frequency")
-      return(res.tbl)
-    } else {
-      res.tbl <- data.frame(table(cores$Tissue.Category, phenotypes))
-      colnames(res.tbl) <- c("Location", "Cell.type", "Frequency")
-      res.tbl <- dcast(res.tbl, Cell.type ~ Location, value.var = "Frequency")
-      Total.cells <- as.integer( rowSums(res.tbl[, 2:ncol(res.tbl)]) )
-      # change to percent
-      res.tbl[, 2:ncol(res.tbl)] <- paste0(round(res.tbl[, 2:ncol(res.tbl)] / rowSums(res.tbl[, 2:ncol(res.tbl)]) * 100, 1), "%")
-      res.tbl <- cbind(res.tbl, Total.cells)
-      str(res.tbl)
-      return(res.tbl)
+      return(NULL)
     }
+    
+    res.tbl <- data.frame(table(cores$Tissue.Category, phenotypes))
+    colnames(res.tbl) <- c("Location", "Cell.type", "Frequency")
+    res.tbl <- dcast(res.tbl, Cell.type ~ Location, value.var = "Frequency")
+    Total.cells <- as.integer( rowSums(res.tbl[, 2:ncol(res.tbl)]) )
+    # change to percent
+    res.tbl[, 2:ncol(res.tbl)] <- paste0(round(res.tbl[, 2:ncol(res.tbl)] / rowSums(res.tbl[, 2:ncol(res.tbl)]) * 100, 1), "%")
+    res.tbl <- cbind(res.tbl, Total.cells)
+    str(res.tbl)
+    return(res.tbl)
   })
   
   # add the frequency table
@@ -390,22 +401,29 @@ server <- function(input, output) {
     }
   })
   
-  # location.frequ
-  output$location.frequ <- renderPlot({
+  # PCA with phenotypes
+  output$pca.phen <- renderPlot({
     cores <- loadCoreData()
-    is.positive <- getPositiveCells()
     phenotypes <- getCurrentPhenotypes()
-    req(cores, is.positive)
+    req(cores, phenotypes)
     
-    if (!"Tissue.Category" %in% colnames(cores)) {
-      return(NULL)
-    }
+    staining.cols <- grepl("Membrane", colnames(cores)) |
+      grepl("Nucleus", colnames(cores)) |
+      grepl("Cytoplasm", colnames(cores))
     
-    ggplot(cbind(cores, phenotypes), aes(x = Tissue.Category)) +
-      geom_bar() +
-      theme_bw() +
-      facet_wrap(~ phenotypes) + 
-      labs(title = "Positive cells")
+    pca.exprs <- t(cores[, staining.cols])
+    pca.exprs[is.na(pca.exprs)] <- 0
+    
+    fit <- prcomp(pca.exprs)
+    plot.data <- data.frame(fit$rotation)
+    plot.data$phenotype <- factor(phenotypes)
+    
+    colors <- brewer.pal(8, "Set1")
+    colors[which(levels(plot.data$phenotype) == "Unknown")] <- "grey"
+    
+    ggplot(plot.data, aes(x = PC1, y = PC2, color = phenotype)) +
+      geom_point() +
+      scale_color_manual(values = colors)
   })
   
   # perform the PCA
